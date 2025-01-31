@@ -7,19 +7,15 @@ from dotenv import load_dotenv
 from rtmt import RTMiddleTier
 import json
 
-def static_rag_tool(query):
-    """Simulated RAG function returning static results."""
-    static_data = {
-        "query": query,
-        "results": [
-            {"title": "Sample Document 1", "content": "This is a relevant piece of information."},
-            {"title": "Sample Document 2", "content": "Another useful document snippet."}
-        ]
-    }
-    return json.dumps(static_data)
 
+ 
+from ragtools_cars import attach_car_tools
+ 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voicerag")
+
+logger.debug("starting the websocket server")
+print("starting")
 
 async def create_app():
     load_dotenv()
@@ -36,10 +32,17 @@ async def create_app():
     )
 
     rtmt.system_message = """
-        You are a helpful assistant. When asked about external knowledge, retrieve data using the 'search' tool.
+        You are a helpful assistant. Only answer questions accessible with the 'search' tool. 
+        The user is listening to answers with audio, so it's *super* important that answers are as short as possible, a single sentence if at all possible. 
+        Never read file names or source names or keys out loud. 
+        Always use the following step-by-step instructions to respond: 
+        1. The user will ask you about cars, and you should use the search_cars tool to return information. Always use the 'search_cars' tool to check the knowledge base before answering a question. 
+        always that you use this tool tell it to the client. if you cannot use the search_cars tool tell it to the client.
+        2. Produce an answer that's as short as possible. If the answer isn't in the knowledge base, say you don't know.  
     """.strip()
 
-    rtmt.register_tool("search", static_rag_tool, {"type": "object", "properties": {"query": {"type": "string"}}})
+
+    attach_car_tools(rtmt)
 
     rtmt.attach_to_app(app, "/realtime")
 

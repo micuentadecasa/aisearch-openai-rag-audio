@@ -174,8 +174,7 @@ class RTMiddleTier:
         await self._forward_messages(ws)
         return ws
 
-    def register_tool(self, name: str, target: Callable, schema: Any):
-        self.tools[name] = Tool(target, schema)
+ 
 
     def attach_to_app(self, app: web.Application, path: str):
         app.router.add_get(path, self._websocket_handler)
