@@ -1,10 +1,6 @@
 import re
 from typing import Any
-
-from azure.core.credentials import AzureKeyCredential
-from azure.identity import DefaultAzureCredential
-from azure.search.documents.aio import SearchClient
-from azure.search.documents.models import VectorizableTextQuery
+ 
 
 from rtmt import RTMiddleTier, Tool, ToolResult, ToolResultDirection
 
@@ -14,16 +10,23 @@ car_data = [
     {"color": "blue", "model": "SUV", "description": "A blue SUV with spacious interior and advanced safety features."}
 ]
 
-_car_search_tool_schema = {
+# Define static list of cars
+STATIC_CAR_DATA = [
+    {"id": "1", "name": "Tesla Model S", "details": "Electric, luxury sedan"},
+    {"id": "2", "name": "Ford Mustang", "details": "Iconic American muscle car"},
+    {"id": "3", "name": "Toyota Corolla", "details": "Reliable and fuel efficient"},
+    # add more entries as needed...
+]
+_car_tool_schema = {
     "type": "function",
-    "name": "search_cars",
-    "description": "Search for car information. Results are formatted as a color, model, and description.",
+    "name": "searchCars",
+    "description": "Search a static list of cars. Provide a search query to match against car names or details.",
     "parameters": {
         "type": "object",
         "properties": {
             "query": {
                 "type": "string",
-                "description": "Search query for car information"
+                "description": "Search query to filter car data"
             }
         },
         "required": ["query"],
@@ -31,16 +34,26 @@ _car_search_tool_schema = {
     }
 }
 
-async def _car_search_tool(args: Any) -> ToolResult:
-    print("_car_search_tool")
-    query = args['query'].lower()
-    result = ""
-    for car in car_data:
-        if query in car['color'].lower() or query in car['model'].lower():
-            result += f"Color: {car['color']}, Model: {car['model']}, Description: {car['description']}\n-----\n"
-            print(result)
-    return ToolResult(result, ToolResultDirection.TO_CLIENT)
+import logging
+
+logger = logging.getLogger("CarTool")
+
+async def _search_car_tool(args: any) -> ToolResult:
+    query = args.get("query", "").lower()
+    logger.info("searchCars tool invoked with query: %s", query)
+    results = []
+    for car in STATIC_CAR_DATA:
+        if query in car["name"].lower() or query in car["details"].lower():
+            results.append(f"[{car['id']}]: {car['name']} - {car['details']}")
+    if results:
+        result_text = "\n-----\n".join(results)
+        logger.info("searchCars result: %s", result_text)
+        return ToolResult(result_text, ToolResultDirection.TO_SERVER)
+    else:
+        logger.info("searchCars found no results for query: %s", query)
+        return ToolResult("No matching cars found.", ToolResultDirection.TO_SERVER)
 
 def attach_car_tools(rtmt: RTMiddleTier) -> None:
     print("attach_car_tools")
-    rtmt.tools["search_cars"] = Tool(schema=_car_search_tool_schema, target=lambda args: _car_search_tool(args))
+    rtmt.tools["searchCars"] = Tool(schema=_car_tool_schema, target=lambda args: _search_car_tool(args))
+
