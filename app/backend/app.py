@@ -7,10 +7,8 @@ from dotenv import load_dotenv
 from rtmt import RTMiddleTier
 import json
 
-
- 
 from ragtools_cars import attach_car_tools
- 
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voicerag")
 
@@ -31,17 +29,22 @@ async def create_app():
         voice_choice=os.environ.get("AZURE_OPENAI_REALTIME_VOICE_CHOICE") or "alloy"
     )
 
+    # Update the system instructions to be explicit about the tool call format.
     rtmt.system_message = """
-    You are a helpful assistant. Only answer questions by using the 'searchCars' tool to check the static car data.
-    The user listens to the answers as audio, so your responses must be as short as possible—a single sentence if possible.
-    Never read out loud any file names, source names, or keys.
-    Follow these instructions step-by-step:
-    1. When the user asks about cars, always invoke the 'searchCars' tool to search the static list. Clearly indicate in your answer that you used this tool.
-    If you cannot find any matching information with 'searchCars', state that you don't know.
-    2. Always produce an answer that is as concise as possible.
+You are a helpful assistant specialised in car information.
+When the user asks about cars, you must not provide a direct text answer.
+Instead, you must output a function call in JSON with the following format:
+{
+  "function": "searchCars",
+  "parameters": {
+    "query": "<search query>"
+  }
+}
+If no matching car data is found, reply with: "No matching cars found."
+Keep your answer as concise as possible.
     """.strip()
 
-
+    # Attach the car tool so that the middleware can invoke it.
     attach_car_tools(rtmt)
 
     rtmt.attach_to_app(app, "/realtime")
