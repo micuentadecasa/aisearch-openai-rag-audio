@@ -166,3 +166,16 @@ app/backend/.chainlit/translations/ta.json
 app/backend/.chainlit/translations/te.json
 app/backend/.chainlit/translations/zh-CN.json
 app/backend/.chainlit/config.toml
+.chainlit/translations/bn.json
+.chainlit/translations/en-US.json
+.chainlit/translations/gu.json
+.chainlit/translations/he-IL.json
+.chainlit/translations/hi.json
+.chainlit/translations/ja.json
+.chainlit/translations/kn.json
+.chainlit/translations/ml.json
+.chainlit/translations/mr.json
+.chainlit/translations/nl-NL.json
+.chainlit/translations/ta.json
+.chainlit/translations/te.json
+.chainlit/translations/zh-CN.json

@@ -1,7 +1,7 @@
 
 cd app
 cd backend
-python app.py
+python app2.py
 
 
 ---- then in other terminal

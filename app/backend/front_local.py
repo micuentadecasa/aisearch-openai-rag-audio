@@ -4,7 +4,8 @@ import asyncio
 import os
 
 # If you have a .env with WS_SERVER_URL, you can do:
-WS_SERVER_URL = os.getenv("WS_SERVER_URL", "ws://localhost:8765")
+WS_SERVER_URL = os.getenv("WS_SERVER_URL_LOCAL", "ws://localhost:8765")
+print(f"Using WS_SERVER_URL: {WS_SERVER_URL}")
 
 @cl.on_chat_start
 async def on_chat_start():
@@ -23,9 +24,11 @@ async def on_audio_start():
     """
     # Create a new WebSocket connection and store it in session
     try:
+        print(f"Connecting to WS server at {WS_SERVER_URL}")
         websocket = await websockets.connect(WS_SERVER_URL)
         cl.user_session.set("ws_connection", websocket)
 
+        print(f"Connected to WS server at {WS_SERVER_URL}")
         # Kick off a background task to listen for messages from the server
         asyncio.create_task(listen_server_messages(websocket))
 
@@ -46,6 +49,8 @@ async def listen_server_messages(websocket):
 
     try:
         async for message in websocket:
+            with open("log_messages_local.txt", "a") as log_file:
+                log_file.write(f"{message}\n\n")
             # The server might send text (JSON) or raw audio bytes
             # We’ll assume that if it’s not valid JSON, it’s audio
             try:

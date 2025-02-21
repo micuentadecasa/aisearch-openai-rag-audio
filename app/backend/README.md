@@ -8,20 +8,20 @@ High-Level Diagram
  
       ┌──────────────────┐
       │   Chainlit UI    │
-      │ (front-end mic)  │
+      │ (front-end mic) front_xx.py │
       └────────┬─────────┘
                │ (1) audio/text
                │
                ▼
       ┌──────────────────┐
-      │   chainlit app   │
+      │   chainlit front_xx.py   │
       │ (main.py events) │
       └────────┬─────────┘
                │ (2) WebSocket
                │
                ▼
       ┌─────────────────────────┐
-      │ Local WS Server (server│
+      │ Local WS Server (app
       │ .py or app2.py)        │
       │ * uses RealtimeClient *│
       └────────┬───────────────┘
