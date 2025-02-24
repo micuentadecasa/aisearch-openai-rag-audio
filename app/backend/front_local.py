@@ -121,6 +121,8 @@ async def on_audio_chunk(chunk: cl.InputAudioChunk):
     if websocket:
         # chunk.data is raw PCM16
         # We can just send it as raw binary
+        # Log the audio chunk to the logs_chunks_audio_sent.txt file
+        # Removed logging functionality
         await websocket.send(chunk.data)
 
 

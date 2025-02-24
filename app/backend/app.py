@@ -1,59 +1,105 @@
+import asyncio
+import websockets
 import logging
-import os
-from pathlib import Path
-from aiohttp import web
-from azure.core.credentials import AzureKeyCredential
-from dotenv import load_dotenv
-from rtmt import RTMiddleTier
 import json
+import os
 
-from ragtools_cars import attach_car_tools
+# Import your RealtimeClient and any relevant tools
+from realtime import RealtimeClient
+from realtime.tools import tools
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("voicerag")
 
-logger.debug("starting the websocket server")
-print("starting")
+SYSTEM_PROMPT = """You are a customer service assistant for ShopMe.
+- If a user asks about their orders but doesn't provide their customer ID,
+  ask for the ID first and do NOT call the 'get_customer_info' function yet.
+- Only call 'get_customer_info' if the user has explicitly provided a valid customer ID.
+- If you still do not have a valid ID, do not call the function. 
+"""
 
-async def create_app():
-    load_dotenv()
+# The main handler for new WebSocket connections
+async def openai_bridge_handler(websocket):
+    # 1) Create a fresh RealtimeClient
+    openai_realtime = RealtimeClient(system_prompt=SYSTEM_PROMPT)
 
-    llm_key = os.environ.get("AZURE_OPENAI_API_KEY")
-    
-    app = web.Application()
+    # 2) (Optional) Add your desired tools
+    #    This uses the definitions from your 'tools.py' file
+    for tool_def, tool_handler in tools:
+        await openai_realtime.add_tool(tool_def, tool_handler)
 
-    rtmt = RTMiddleTier(
-        endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-        deployment=os.environ["AZURE_OPENAI_REALTIME_DEPLOYMENT"],
-        api_key=llm_key,
-        voice_choice=os.environ.get("AZURE_OPENAI_REALTIME_VOICE_CHOICE") or "alloy"
-    )
+    # 3) Connect to Azure OpenAI Realtime
+    await openai_realtime.connect()
 
-    # Update the system instructions to be explicit about the tool call format.
-    rtmt.system_message = """
-You are a helpful assistant specialised in car information.
-When the user asks about cars, you must not provide a direct text answer.
-Instead, you must output a function call in JSON with the following format:
-{
-  "function": "searchCars",
-  "parameters": {
-    "query": "<search query>"
-  }
-}
-If no matching car data is found, reply with: "No matching cars found."
-Keep your answer as concise as possible.
-    """.strip()
+    # 4) Set up callbacks so that we can forward audio or text from Azure -> user
+    #    We'll define minimal handlers to send data back through the user's WebSocket.
+    async def handle_conversation_updated(event):
+        """
+        Called when the RealtimeClient processes an update from Azure,
+        e.g., partial audio or partial text.
+        """
+        delta = event.get("delta", {})
+            # If delta is None, there's nothing further to process
+        if not delta:
+            return
 
-    # Attach the car tool so that the middleware can invoke it.
-    attach_car_tools(rtmt)
+        if "text" in delta:
+            # Text chunk from Azure
+            text_chunk = delta["text"]
+            # Send it back to the user as text
+            await websocket.send(json.dumps({"type": "azure_text", "payload": text_chunk}))
+        if "audio" in delta:
+            # Audio chunk from Azure (bytes in int16 PCM)
+            audio_chunk = delta["audio"]
+            # Send it back to the user as a binary frame
+            await websocket.send(audio_chunk)  # or websocket.send(bytes(...)) if needed
+        # ... handle function call arguments, transcripts, etc. as needed
 
-    rtmt.attach_to_app(app, "/realtime")
+    async def handle_item_completed(event):
+        """
+        Called when a message or tool call is fully completed.
+        For now, we just log it.
+        """
+        item = event.get("item")
+        logging.info(f"[Realtime] Item completed: {item}")
 
-    current_directory = Path(__file__).parent
-    app.add_routes([web.get('/', lambda _: web.FileResponse(current_directory / 'static/index.html'))])
-    app.router.add_static('/', path=current_directory / 'static', name='static')
+    async def handle_error(event):
+        logging.error(f"[Realtime] Error event: {event}")
 
-    return app
+    # 5) Register the event listeners on the RealtimeClient
+    openai_realtime.on("conversation.updated", handle_conversation_updated)
+    openai_realtime.on("conversation.item.completed", handle_item_completed)
+    openai_realtime.on("error", handle_error)
+
+    # 6) Main loop: read incoming frames from the user
+    #    For text -> forward as user message
+    #    For binary -> treat it as audio
+    try:
+        while True:
+            message = await websocket.recv()
+            if isinstance(message, str):
+                logging.info(f"[User->Server] Text: {message}")
+                # Send the text message to Azure
+                # RealtimeClient expects an array of dict objects, e.g., {type: 'input_text', text: 'Hello'}
+                await openai_realtime.send_user_message_content([{
+                    "type": "input_text",
+                    "text": message
+                }])
+            elif isinstance(message, bytes):
+                logging.info(f"[User->Server] Audio bytes: {len(message)} bytes")
+                # Send the audio chunk to Azure
+                await openai_realtime.append_input_audio(message)
+
+    except websockets.ConnectionClosed:
+        logging.info("[User] Disconnected.")
+    finally:
+        # On user disconnect, gracefully close the Azure Realtime connection
+        await openai_realtime.disconnect()
+
+# Main entry point: Start the local WS server
+async def main():
+    async with websockets.serve(openai_bridge_handler, "0.0.0.0", 8765):
+        logging.info("Local WebSocket server on ws://0.0.0.0:8765")
+        await asyncio.Future()  # block forever
 
 if __name__ == "__main__":
-    web.run_app(create_app(), host="localhost", port=8765)
+    asyncio.run(main())
