@@ -179,3 +179,4 @@ app/backend/.chainlit/config.toml
 .chainlit/translations/ta.json
 .chainlit/translations/te.json
 .chainlit/translations/zh-CN.json
+app/backend/logs_messages_aws.txt
