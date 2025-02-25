@@ -5,7 +5,6 @@ import websockets
 import asyncio
 import chainlit as cl
 from collections import deque
-import time
 
 # Load WebSocket URL and Auth Token
 WS_SERVER_URL = os.getenv("WS_SERVER_URL", "wss://57a3pumjpe.execute-api.eu-west-1.amazonaws.com/default")
@@ -316,3 +315,12 @@ async def on_chat_end():
         }))
         await websocket.close()
         cl.user_session.set("ws_connection", None)
+
+async def main():
+    await asyncio.gather(
+        on_chat_start(),
+        listen_server_messages(websocket)
+    )
+
+if __name__ == "__main__":
+    asyncio.run(main())
