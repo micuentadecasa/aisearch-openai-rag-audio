@@ -10,17 +10,12 @@ from collections import deque
 WS_SERVER_URL = os.getenv("WS_SERVER_URL", "wss://57a3pumjpe.execute-api.eu-west-1.amazonaws.com/default")
 AUTH_TOKEN = os.getenv("AUTH_TOKEN", "your_auth_token_here")
 
-# Store global WebSocket connection and audio state
-websocket = None
-audio_receiving_enabled = True  # Flag to control audio receiving state
-
 # Queue to store audio chunks
 audio_chunk_queue = deque()
 
 @cl.on_chat_start
 async def on_chat_start():
     """Start WebSocket connection on chat start and set up receiving audio."""
-    global websocket
     try:
         # Generate a unique session ID for tracking this conversation
         session_id = f"session_{int(asyncio.get_event_loop().time() * 1000)}"
@@ -47,8 +42,9 @@ async def on_chat_start():
         }
         await websocket.send(json.dumps(init_payload))
 
-        # Start listening for messages
-        asyncio.create_task(listen_server_messages(websocket))
+        # Start listening for messages as a separate task
+        listener_task = asyncio.create_task(listen_server_messages(websocket))
+        cl.user_session.set("listener_task", listener_task)
 
     except Exception as e:
         print(f"[WebSocket ERROR] Failed to connect: {e}")
@@ -60,7 +56,6 @@ async def listen_server_messages(websocket):
     Handles both audio and transcript messages.
     """
     json_buffer = ""  # Buffer for accumulating JSON fragments
-    audio_buffer = ""  # (Unused here but kept for symmetry)
     is_collecting = False  # Flag for audio fragment collection
     
     try:
@@ -144,7 +139,7 @@ async def listen_server_messages(websocket):
                     await cl.ErrorMessage(content="Error processing server message. Check logs.").send()
                     json_buffer = ""
             
-            # For standalone messages that aren’t part of audio collection
+            # For standalone messages that aren't part of audio collection
             elif not is_collecting:
                 try:
                     response = json.loads(json_buffer)
@@ -211,17 +206,30 @@ async def on_audio_start():
 
 @cl.on_audio_chunk
 async def on_audio_chunk(chunk: cl.InputAudioChunk):
-    """Queues audio chunks and sends them in batches while keeping the payload under the limit."""
-    global audio_chunk_queue
+    """Processes audio chunks and sends them efficiently."""
     websocket = cl.user_session.get("ws_connection")
     
     if websocket:
+        # Add to queue
         audio_chunk_queue.append(chunk)
-        # If there are at least 5 chunks, attempt to send a batch
-        if len(audio_chunk_queue) >= 5:
-            await send_audio_batch(websocket)
+        
+        # Process the queue in a non-blocking way
+        asyncio.create_task(process_audio_queue(websocket))
     else:
         print("[WebSocket ERROR] No active WebSocket connection.")
+
+async def process_audio_queue(websocket):
+    """Process audio queue without blocking the main thread."""
+    global audio_chunk_queue
+    
+    # Only process if we have enough chunks and no other process is running
+    processing_key = "is_processing_audio_queue"
+    if len(audio_chunk_queue) >= 5 and not cl.user_session.get(processing_key, False):
+        try:
+            cl.user_session.set(processing_key, True)
+            await send_audio_batch(websocket)
+        finally:
+            cl.user_session.set(processing_key, False)
 
 async def send_audio_batch(websocket):
     """Sends a batch of audio chunks to the WebSocket, ensuring the JSON payload is below the size limit."""
@@ -235,7 +243,7 @@ async def send_audio_batch(websocket):
     batch_payload = {
         "action": "metahuman",
         "body": {
-            "type": "audio_batch",
+            "type": "audio",
             "audio_session_id": audio_session_id,
             "chunks": [],
             "timestamp": str(int(asyncio.get_event_loop().time() * 1000))
@@ -304,23 +312,26 @@ async def on_audio_end():
 async def on_chat_end():
     """Closes WebSocket connection when the chat session ends or the user stops interaction."""
     websocket = cl.user_session.get("ws_connection")
+    listener_task = cl.user_session.get("listener_task")
+    
+    if listener_task and not listener_task.done():
+        listener_task.cancel()
+        try:
+            await listener_task
+        except asyncio.CancelledError:
+            pass
+    
     if websocket:
         print("[WebSocket] Closing connection.")
-        await websocket.send(json.dumps({
-            "action": "metahuman", 
-            "body": {
-                "type": "control",
-                "message": "CLOSE_CONNECTION"
-            }
-        }))
-        await websocket.close()
+        try:
+            await websocket.send(json.dumps({
+                "action": "metahuman", 
+                "body": {
+                    "type": "control",
+                    "message": "CLOSE_CONNECTION"
+                }
+            }))
+            await websocket.close()
+        except Exception as e:
+            print(f"[WebSocket] Error during close: {e}")
         cl.user_session.set("ws_connection", None)
-
-async def main():
-    await asyncio.gather(
-        on_chat_start(),
-        listen_server_messages(websocket)
-    )
-
-if __name__ == "__main__":
-    asyncio.run(main())
