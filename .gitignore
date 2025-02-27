@@ -187,3 +187,7 @@ app/backend/logs_messages_aws.txt
 app/backend/logs_chunks_audio_received_console.txt
 app/backend/logs_chunks_audio_sent.txt
 app/backend/logs_messages_aws.txt
+app/backend/logs_chunks_audio_received_console.txt
+app/backend/logs_chunks_audio_sent.txt
+app/backend/logs_messages_aws.txt
+app/backend/logs_text_received_console.txt

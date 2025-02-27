@@ -1,3 +1,6 @@
+
+# script to test the AWS WebSocket connection from command line and not having to use the Gradio interface
+
 import os
 import json
 import base64
@@ -61,7 +64,7 @@ async def main():
             #await send_file_content(websocket, "record_myOrders_b64.txt")
 
             # Wait for 1 second
-            await asyncio.sleep(1)
+            #await asyncio.sleep(1)
 
             # Send content of the second file
             await send_file_content(websocket, "record_clientId_b64.txt")
