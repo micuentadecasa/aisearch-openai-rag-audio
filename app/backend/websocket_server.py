@@ -37,6 +37,7 @@ async def openai_bridge_handler(websocket):
         Called when the RealtimeClient processes an update from Azure,
         e.g., partial audio or partial text.
         """
+        print(f"[Realtime] Conversation updated: {event}")
         delta = event.get("delta", {})
             # If delta is None, there's nothing further to process
         if not delta:

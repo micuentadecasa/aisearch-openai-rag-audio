@@ -17,6 +17,7 @@ async def on_chat_start():
     """Start WebSocket connection on chat start."""
     global websocket
     try:
+        print("starting")
         websocket_url = f"{WS_SERVER_URL}?authorizationToken={AUTH_TOKEN}"
         print(f"[WebSocket] Connecting to: {websocket_url}")
         
@@ -33,121 +34,100 @@ async def on_chat_start():
         await cl.ErrorMessage(content=f"WebSocket connection failed: {e}").send()
 
 async def listen_server_messages(websocket):
-    """Listens for responses from AWS WebSocket, buffers JSON fragments, and processes messages."""
-    global audio_buffer
-    json_buffer = ""  # Initialize JSON buffer for accumulating fragments
-    audio_buffer = ""  # Initialize audio buffer for accumulating audio chunks
-    is_collecting = False  # Flag to track if we're collecting fragments
-    
+    """Listens for responses from AWS WebSocket, buffers multi-chunk messages, and processes them."""
+    json_buffer = ""  # Buffer for accumulating incomplete JSON fragments.
+    audio_chunks = []  # List to store base64-encoded audio chunks.
+
     try:
         async for message in websocket:
+            # Convert message to string.
             if isinstance(message, bytes):
                 message_str = message.decode('utf-8', errors='ignore')
             elif isinstance(message, str):
                 message_str = message
             else:
                 print(f"[WebSocket] Received unexpected message type: {type(message)}")
-                with open("logs_messages_aws.txt", "a") as log_file:
-                    log_file.write(f"Unexpected message type: {type(message)}\nMessage: {message}\n\n")
                 continue
 
-            # Append current message to buffer
-            json_buffer += message_str
-            
-            # Check if this is the start of audio collection
-            if not is_collecting and '"assistant_audio":' in message_str:
-                is_collecting = True
-                print("[WebSocket] Started collecting audio fragments")
-            
-            # Check if we have a complete message with transcript
-            if '"assistant_transcript"' in message_str:
-                is_collecting = False
-                print("[WebSocket] Found transcript, processing complete message")
-                #print(f"[WebSocket] Complete message: {json_buffer}")
-
+            # Attempt to parse the JSON.
+            try:
+                response = json.loads(message_str)
+                # print the response truncating the audio
+                print(f"[listen_server_messages] Received: {json.dumps(response, indent=2)[:100]}... (truncated)")
+            except json.JSONDecodeError:
+                json_buffer += message_str
                 try:
-                    # Parse the complete JSON object
                     response = json.loads(json_buffer)
-                    
-                    
-                    # Log the complete message
-                    with open("logs_messages_aws.txt", "a") as log_file:
-                        log_file.write(f"Received complete JSON Object:\n{json_buffer}\n\n")
-                    
-                    # Handle the complete audio
-                    if "assistant_audio" in response:
-                        audio_chunk_b64 = response["assistant_audio"]
-                        if audio_chunk_b64:
-                            try:
-                                # Decode and play the full audio
-                                audio_bytes = base64.b64decode(audio_chunk_b64)
-                                await cl.context.emitter.send_audio_chunk(
-                                    cl.OutputAudioChunk(
-                                        mimeType="audio/wav",
-                                        data=audio_bytes,
-                                        track="assistant_audio"
-                                    )
-                                )
-                            except base64.binascii.Error as e_b64:
-                                print(f"[Base64 Decode Error]: {e_b64}")
-                                with open("logs_messages_aws.txt", "a") as log_file:
-                                    log_file.write(f"Base64 Decode Error: {e_b64}\nMessage: {message_str}\n\n")
-                    
-                    # Handle the transcript
-                    if "assistant_transcript" in response:
-                        transcript = response.get("assistant_transcript")
-                        if transcript:
-                            await cl.Message(content=transcript).send()
-                    
-                    # Clear the buffers after successful processing
                     json_buffer = ""
-                    audio_buffer = ""
-                    
-                except json.JSONDecodeError as e_json:
-                    print(f"[WebSocket] Error parsing complete message: {e_json}")
-                    with open("logs_messages_aws.txt", "a") as log_file:
-                        log_file.write(f"Error parsing complete message: {e_json}\nBuffer: {json_buffer}\n\n")
-                    await cl.ErrorMessage(content="Error processing server message. Check logs.").send()
-                    json_buffer = ""
-                    
-                except Exception as e_general:
-                    print(f"[General Processing Error]: {e_general}")
-                    with open("logs_messages_aws.txt", "a") as log_file:
-                        log_file.write(f"General Processing Error: {e_general}\nBuffer: {json_buffer}\n\n")
-                    await cl.ErrorMessage(content="Error processing server message. Check logs.").send()
-                    json_buffer = ""
-            
-            # If we're not collecting and this isn't part of an audio message, 
-            # try to process it as a standalone message
-            elif not is_collecting:
-                try:
-                    # Try to parse as a standalone message
-                    response = json.loads(json_buffer)
-                    
-                    # Log the message
-                    with open("logs_messages_aws.txt", "a") as log_file:
-                        log_file.write(f"Received standalone JSON Object:\n{json_buffer}\n\n")
-                    
-                    # Process any non-audio/transcript messages here if needed
-                    # ...
-                    
-                    # Clear the buffer
-                    json_buffer = ""
-                    
                 except json.JSONDecodeError:
-                    # Not a complete JSON, might be the start of something else
-                    # Just keep buffering
-                    pass
-    
+                    continue  # Wait for more fragments.
+
+            # Check for multi-chunk messages.
+            if "chunk_index" in response and "total_chunks" in response:
+                # Append current audio chunk.
+                audio_chunk_b64 = response.get("assistant_audio", "")
+                if audio_chunk_b64:
+                    audio_chunks.append(audio_chunk_b64)
+
+                # If this is not the final chunk, wait for more.
+                if response["chunk_index"] < response["total_chunks"]:
+                    print(f"[listen_server_messages] Received chunk {response['chunk_index']} of {response['total_chunks']}.")
+                    continue
+                else:
+                    # Final chunk received: combine all chunks.
+                    try:
+                        print(f"[listen_server_messages] Received final chunk {response['chunk_index']} of {response['total_chunks']}.")
+                        combined_audio = b"".join(
+                            base64.b64decode(chunk) for chunk in audio_chunks
+                        )
+                        print(f"[listen_server_messages] playing combined audio of length {len(combined_audio)} bytes.")
+                        await cl.context.emitter.send_audio_chunk(
+                            cl.OutputAudioChunk(
+                                mimeType="audio/wav",
+                                data=combined_audio,
+                                track="assistant_audio"
+                            )
+                        )
+                    except Exception as e:
+                        print(f"[WebSocket] Error processing combined audio: {e}")
+
+                    # Process transcript if available.
+                    transcript = response.get("assistant_transcript", "")
+                    if transcript:
+                        await cl.Message(content=transcript).send()
+
+                    # Clear the audio chunks for the next multi-chunk message.
+                    audio_chunks = []
+
+            else:
+                # Process single (non-chunked) message as before.
+                if "assistant_audio" in response:
+                    print(f"[listen_server_messages] Received audio single chunk.")
+                    audio_chunk_b64 = response["assistant_audio"]
+                    if audio_chunk_b64:
+                        try:
+                            audio_bytes = base64.b64decode(audio_chunk_b64)
+                            await cl.context.emitter.send_audio_chunk(
+                                cl.OutputAudioChunk(
+                                    mimeType="audio/wav",
+                                    data=audio_bytes,
+                                    track="assistant_audio"
+                                )
+                            )
+                        except Exception as e:
+                            print(f"[Base64 Decode Error]: {e}")
+                if "assistant_transcript" in response:
+                    transcript = response.get("assistant_transcript")
+                    if transcript:
+                        await cl.Message(content=transcript).send()
+
     except websockets.ConnectionClosed:
         print("[WebSocket] Connection closed.")
-    except Exception as e_connection:
-        print(f"[WebSocket Listener Error]: {e_connection}")
-        with open("logs_messages_aws.txt", "a") as log_file:
-            log_file.write(f"WebSocket Listener Error: {e_connection}\n\n")
-        await cl.ErrorMessage(content="WebSocket listener encountered an error. Check logs.").send()
+    except Exception as e:
+        print(f"[WebSocket Listener Error]: {e}")
     finally:
         print("[WebSocket] Listener stopped.")
+
 
 
 @cl.on_message
@@ -185,6 +165,14 @@ async def on_audio_start():
 @cl.on_audio_chunk
 async def on_audio_chunk(chunk: cl.InputAudioChunk):
     """Sends audio as base64 encoded payload to AWS WebSocket."""
+    # Audio bytes: 8192 bytes
+    # calculate the bytes of the chunk
+    # print the bytes of the chunk
+    #print(f"[WebSocket] Audio bytes: {len(chunk.data)} bytes")
+    bytesLength = len(chunk.data)
+    if (bytesLength < 8192):
+        return
+    print(f"[WebSocket] Audio bytes: {bytesLength} bytes")
     websocket = cl.user_session.get("ws_connection")
     
     if websocket:
