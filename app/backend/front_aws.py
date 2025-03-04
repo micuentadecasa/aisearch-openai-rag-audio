@@ -164,36 +164,53 @@ async def on_audio_start():
 
 @cl.on_audio_chunk
 async def on_audio_chunk(chunk: cl.InputAudioChunk):
-    """Sends audio as base64 encoded payload to AWS WebSocket."""
-    # Audio bytes: 8192 bytes
-    # calculate the bytes of the chunk
-    # print the bytes of the chunk
-    #print(f"[WebSocket] Audio bytes: {len(chunk.data)} bytes")
-    bytesLength = len(chunk.data)
-    if (bytesLength < 8192):
-        return
-    print(f"[WebSocket] Audio bytes: {bytesLength} bytes")
+    """Sends audio as base64-encoded payload to AWS WebSocket, matching Lambda expectations."""
+
+    # if len of audio is 8192 bytes then return, because it is a silence
+    #if len(chunk.data) == 8192:
+    #    print("[WebSocket] Audio chunk is silence, skipping.")
+    #    return
+
     websocket = cl.user_session.get("ws_connection")
-    
-    if websocket:
-        #encoded_audio = base64.b64encode(chunk.data).decode("utf-8")
+
+    if not websocket:
+        print("[WebSocket ERROR] No active WebSocket connection.")
+        return
+
+    # Ensure chunk is not empty
+    bytes_length = len(chunk.data)
+    if bytes_length == 0:
+        return
+
+    print(f"[WebSocket] Audio bytes: {bytes_length} bytes")
+
+    try:
+        # Convert audio bytes to Base64 (mimicking array_buffer_to_base64)
         encoded_audio = base64.b64encode(chunk.data).decode("utf-8")
+
+        # Send message in correct format for Lambda function
         payload = {
             "action": "metahuman",
             "body": {
                 "type": "audio",
-                "message": encoded_audio  # Sending base64-encoded audio
+                "message": encoded_audio  # Base64-encoded audio
             }
         }
+
         json_payload = json.dumps(payload)
-        print(f"[WebSocket] Sending audio: {json_payload[:100]}... (truncated)")
+        print(f"[WebSocket] Sending audio: {json_payload}")
         await websocket.send(json_payload)
-        # Log the audio chunk to the logs_chunks_audio_sent.txt file
+
+        # Store locally for debugging (optional)
+        cl.user_session.set("audio_buffer", cl.user_session.get("audio_buffer", []) + [chunk.data])
+
+        # Log the audio chunk for debugging
         with open("logs_chunks_audio_sent.txt", "a") as log_file:
             log_file.write(f"{encoded_audio}\n")
-        #await websocket.send(chunk.data)
-    else:
-        print("[WebSocket ERROR] No active WebSocket connection.")
+
+    except Exception as e:
+        print(f"[WebSocket] Error sending audio chunk: {e}")
+
 
 
 @cl.on_audio_end

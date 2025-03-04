@@ -123,6 +123,11 @@ class RealtimeAPI(RealtimeEventHandler):
             f"&deployment={self.azure_deployment}"
             f"&api-key={self.api_key}"
         )
+        # save the ws_url in the log file log_messages_sent_front_local.txt
+        with open("log_messages_sent_front_local.txt", "a") as log_file:
+            log_file.write(f"{ws_url}\n\n")
+        print(f"Connecting to {ws_url}")
+        print("-----------------------------------")
 
         # Connect
         self.ws = await websockets.connect(ws_url)
@@ -157,6 +162,10 @@ class RealtimeAPI(RealtimeEventHandler):
             "type": event_name,
             **data
         }
+        print(f"Sending: {event}")
+        # save the events in the log file log_messages_sent_front_local.txt, keeep the json format with the double quotes
+        with open("log_messages_sent_front_local.txt", "a") as log_file:
+            log_file.write(f"{json.dumps(event)}\n\n")
         self.dispatch(f"client.{event_name}", event)
         self.dispatch("client.*", event)
         self.log("sent:", event)
