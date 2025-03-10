@@ -34,7 +34,8 @@ async def send_file_content(websocket, file_name):
             "action": "metahuman",
             "body": {
                 "type": "audio",
-                "message": chunk
+                "message": chunk,
+                "token": "234kh234hjh34"
             }
         }
         json_payload = json.dumps(payload)

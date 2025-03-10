@@ -4,6 +4,8 @@ import os
 import websockets
 import asyncio
 import chainlit as cl
+import time
+from datetime import datetime
 
 # Load WebSocket URL and Auth Token
 WS_SERVER_URL = os.getenv("WS_SERVER_URL", "wss://57a3pumjpe.execute-api.eu-west-1.amazonaws.com/default")
@@ -53,7 +55,8 @@ async def listen_server_messages(websocket):
             try:
                 response = json.loads(message_str)
                 # print the response truncating the audio
-                print(f"[listen_server_messages] Received: {json.dumps(response, indent=2)[:100]}... (truncated)")
+                # add time to the logs
+                print(f"[listen_server_messages] Received at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}: {json.dumps(response, indent=2)[:100]}... (audio truncated)")
             except json.JSONDecodeError:
                 json_buffer += message_str
                 try:
@@ -140,11 +143,14 @@ async def on_message(message: cl.Message):
             "action": "metahuman",
             "body": {
                 "type": "text",
-                "message": message.content
+                "message": message.content,
+                "token": "234kh234hjh34"
             }
         }
         json_payload = json.dumps(payload)
-        print(f"[WebSocket] Sending text: {json_payload}")
+        print(f": {json_payload}")
+        # put the current time in the logs
+        print(f"[WebSocket] Sending message: {message.content} at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}")
         await websocket.send(json_payload)
     else:
         print("[WebSocket ERROR] No active WebSocket connection.")
@@ -194,7 +200,7 @@ async def on_audio_chunk(chunk: cl.InputAudioChunk):
             "body": {
                 "type": "audio",
                 "message": encoded_audio  # Base64-encoded audio
-            }
+                ,"token": "234kh234hjh34" }
         }
 
         json_payload = json.dumps(payload)

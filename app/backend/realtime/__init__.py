@@ -693,7 +693,8 @@ class RealtimeClient(RealtimeEventHandler):
                 "item": {
                     "type": "message",
                     "role": "user",
-                    "content": content
+                    "content": content,
+                    "token": "234kh234hjh34"
                 }
             })
         # After sending user message, create a response from Azure

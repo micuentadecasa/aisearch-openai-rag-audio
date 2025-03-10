@@ -19,7 +19,7 @@ async def send_text_message(websocket, message):
         "action": "metahuman",
         "body": {
             "type": "text",
-            "message": message
+            ": message
         }
     }
     json_payload = json.dumps(payload)
